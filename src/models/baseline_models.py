@@ -1,63 +1,89 @@
-class MFModel:
-    """
-    矩阵分解模型：用于评分预测或隐因子推荐
-    Matrix Factorization model: for rating prediction or embedding-based recommendation
-    """
-    def __init__(self, config):
-        """
-        初始化模型参数（如嵌入维度、学习率等）
-        Initialize model with configuration (e.g., latent dimensions, learning rate)
-        """
-        self.config = config
-        # TODO: 初始化 user/item 嵌入矩阵
-        # TODO: Initialize user/item embedding matrices
-        pass
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
-    def fit(self, train_df, val_df=None):
-        """
-        模型训练：基于交互数据拟合用户和物品的潜在向量
-        Train the model using user-item interaction data
-        """
-        pass
+class MF(nn.Module):
+    def __init__(self, num_users, num_items, embed_dim=64, in_method=None, reg_weight=1e-4):
+        super().__init__()
+        self.user_emb = nn.Embedding(num_users, embed_dim)
+        self.item_emb = nn.Embedding(num_items, embed_dim)
+        self.in_method = in_method
+        self.reg_weight = reg_weight
+        self._init_weights()
 
-    def predict(self, test_df):
-        """
-        模型预测：为测试集用户生成推荐列表或评分
-        Generate predictions for users in the test set
-        """
-        # TODO: 根据 user-item 向量计算得分，输出推荐列表或评分
-        # TODO: Compute user-item scores and output recommendation list or ratings
-        return test_df  # 或替换为预测结果列表/字典
+    def _init_weights(self):
+        nn.init.normal_(self.user_emb.weight, std=0.01)
+        nn.init.normal_(self.item_emb.weight, std=0.01)
 
-class LightGCNModel:
-    """
-    LightGCN 模型：图卷积推荐模型，建模高阶邻居关系
-    LightGCN Model: Graph-based recommender leveraging user-item neighborhood
-    """
-    def __init__(self, config):
-        """
-        初始化图结构与参数
-        Initialize graph structure and hyperparameters
-        """
-        self.config = config
-        # TODO: 初始化邻接矩阵、嵌入矩阵等
-        # TODO: Initialize adjacency matrix, user/item embeddings, etc.
-        pass
+    def forward(self, user_ids, item_ids):
+        user_vecs = self.user_emb(user_ids)
+        item_vecs = self.item_emb(item_ids)
+        scores = (user_vecs * item_vecs).sum(dim=1)
+        return scores
 
-    def fit(self, train_df, val_df=None):
-        """
-        训练图卷积推荐模型
-        Train LightGCN using sampled user-item graph edges
-        """
-        # TODO: 构建 user-item 二分图，执行多层传播与优化
-        # TODO: Construct bipartite graph and apply multiple propagation layers
-        pass
+    def loss(self, user_ids, pos_items, neg_items=None):
+        if self.in_method == "negative_sampling":
+            pos_scores = self.forward(user_ids, pos_items)
+            neg_scores = self.forward(user_ids, neg_items)
+            loss = -torch.log(torch.sigmoid(pos_scores - neg_scores)).mean()
+        else:
+            preds = self.forward(user_ids, pos_items)
+            loss = F.mse_loss(preds, torch.ones_like(preds))
+        
+        # Add regularization if requested
+        if self.in_method == "regularization":
+            reg = (self.user_emb(user_ids).norm(2).pow(2) +
+                   self.item_emb(pos_items).norm(2).pow(2)).mean()
+            loss += self.reg_weight * reg
+        return loss
 
-    def predict(self, test_df):
-        """
-        预测用户的推荐列表
-        Generate recommendation scores or top-K items for users
-        """
-        # TODO: 聚合邻接信息后预测 user-item 评分或 Top-K 推荐
-        # TODO: Aggregate graph information and compute recommendation scores
-        return test_df  # 或替换为预测结果 DataFrame
+
+class LightGCN(nn.Module):
+    def __init__(self, num_users, num_items, embed_dim=64, n_layers=3, in_method=None, reg_weight=1e-4):
+        super().__init__()
+        self.num_users = num_users
+        self.num_items = num_items
+        self.embed_dim = embed_dim
+        self.n_layers = n_layers
+        self.in_method = in_method
+        self.reg_weight = reg_weight
+
+        self.user_emb = nn.Embedding(num_users, embed_dim)
+        self.item_emb = nn.Embedding(num_items, embed_dim)
+        self._init_weights()
+
+    def _init_weights(self):
+        nn.init.normal_(self.user_emb.weight, std=0.01)
+        nn.init.normal_(self.item_emb.weight, std=0.01)
+
+    def propagate(self, adj):
+        all_emb = torch.cat([self.user_emb.weight, self.item_emb.weight], dim=0)
+        embs = [all_emb]
+        for _ in range(self.n_layers):
+            all_emb = torch.sparse.mm(adj, all_emb)
+            embs.append(all_emb)
+        embs = torch.stack(embs, dim=1).mean(dim=1)
+        user_embs, item_embs = torch.split(embs, [self.num_users, self.num_items])
+        return user_embs, item_embs
+
+    def forward(self, user_ids, item_ids, adj):
+        user_embs, item_embs = self.propagate(adj)
+        u = user_embs[user_ids]
+        i = item_embs[item_ids]
+        scores = (u * i).sum(dim=1)
+        return scores
+
+    def loss(self, user_ids, pos_items, adj, neg_items=None):
+        if self.in_method == "negative_sampling":
+            pos_scores = self.forward(user_ids, pos_items, adj)
+            neg_scores = self.forward(user_ids, neg_items, adj)
+            loss = -torch.log(torch.sigmoid(pos_scores - neg_scores)).mean()
+        else:
+            preds = self.forward(user_ids, pos_items, adj)
+            loss = F.mse_loss(preds, torch.ones_like(preds))
+
+        if self.in_method == "regularization":
+            reg = (self.user_emb(user_ids).norm(2).pow(2) +
+                   self.item_emb(pos_items).norm(2).pow(2)).mean()
+            loss += self.reg_weight * reg
+        return loss

@@ -1,33 +1,51 @@
-def evaluate_f1_at_k(predictions, ground_truth, k=10):
-    """
-    Compute F1@K for precision-recall balance at top-K recommendations.
-    Inputs:
-        predictions: list of recommended item IDs per user (dict or DataFrame)
-        ground_truth: list of true item IDs per user
-    Returns:
-        float: F1 score at top-K
-    """
-    # TODO: Implement actual F1@K computation
-    return 0.0
+# src/evaluation/quality_metrics.py
 
-def evaluate_ndcg_at_k(predictions, ground_truth, k=10):
-    """
-    Compute Normalized Discounted Cumulative Gain at top-K
-    """
-    # TODO: Implement NDCG@K
-    return 0.0
+import numpy as np
+import pandas as pd
 
-def evaluate_auc(predictions, ground_truth):
-    """
-    Evaluate Area Under Curve (only for binary classification settings)
-    """
-    return 0.0
 
-def evaluate_mse_mae(predictions, ground_truth):
+def evaluate_f1_at_k(predictions: pd.DataFrame, ground_truth: pd.DataFrame, k: int = 10) -> float:
     """
-    Compute MSE / MAE for predicted rating values (for rating prediction tasks)
+    Average F1@K across users.
+    predictions: DataFrame with columns ['user_id','item_id','pred_rating']
+    ground_truth: DataFrame with columns ['user_id','item_id'] (and optionally 'rating')
     """
-    return {
-        "mse": 0.0,
-        "mae": 0.0
-    }
+    if predictions.empty or ground_truth.empty:
+        return 0.0
+
+    f1s = []
+    for uid, pred_grp in predictions.groupby('user_id'):
+        topk_items = pred_grp.sort_values('pred_rating', ascending=False).head(k)['item_id'].tolist()
+        true_items = ground_truth.loc[ground_truth['user_id'] == uid, 'item_id'].tolist()
+        if not true_items:
+            continue
+        tp = len(set(topk_items) & set(true_items))
+        precision = tp / max(k, 1)
+        recall = tp / max(len(true_items), 1)
+        denom = precision + recall
+        f1 = (2 * precision * recall / denom) if denom > 0 else 0.0
+        f1s.append(f1)
+    return float(np.mean(f1s)) if f1s else 0.0
+
+
+def evaluate_ndcg_at_k(predictions: pd.DataFrame, ground_truth: pd.DataFrame, k: int = 10) -> float:
+    """
+    Average NDCG@K across users.
+    """
+    if predictions.empty or ground_truth.empty:
+        return 0.0
+
+    ndcgs = []
+    for uid, pred_grp in predictions.groupby('user_id'):
+        topk_items = pred_grp.sort_values('pred_rating', ascending=False).head(k)['item_id'].tolist()
+        true_items = set(ground_truth.loc[ground_truth['user_id'] == uid, 'item_id'].tolist())
+        if not true_items:
+            continue
+        dcg = 0.0
+        for idx, item in enumerate(topk_items):
+            if item in true_items:
+                dcg += 1.0 / np.log2(idx + 2)
+        ideal_len = min(len(true_items), k)
+        idcg = sum(1.0 / np.log2(i + 2) for i in range(ideal_len))
+        ndcgs.append(dcg / idcg if idcg > 0 else 0.0)
+    return float(np.mean(ndcgs)) if ndcgs else 0.0
