@@ -1,41 +1,46 @@
+# config/config.yaml
+
 # ==== 数据路径 ====
 # Path to the dataset CSV file
-data_path: data/movielens.csv
+data_path: data/movielens_sample.csv
 
 # ==== 数据清洗参数 ====
 # Parameters for data cleaning
 data_cleaning:
-  fill_missing: mean          # 缺失值填充方式（mean, median, zero） | Method for filling missing values
-  outlier_method: zscore      # 异常值检测方法（zscore 或 iqr）   | Method for outlier detection
+  fill_missing: mean          # 缺失值填充方式（mean, median, zero）
+  outlier_method: zscore      # 异常值检测方法（zscore 或 iqr）
 
-# ==== 数据平衡方法 ====
-# Method for dataset balancing
+# ==== 数据平衡方法（可选） ====
 balancing:
-  method: random              # 可选方法（random, smote, cleaning+sampling, cluster） | Method to balance dataset
-
-# ==== 降维配置 ====
-# PCA configuration
-dimension_reduction:
-  enable: false               # 是否启用 PCA 降维             | Whether to apply PCA
-  n_components: 10            # 保留的主成分数量（如果启用）  | Number of PCA components to keep
-
-# ==== 特征处理配置 ====
-# Feature preprocessing (e.g., standardization)
-feature_processing:
-  numeric_columns: ["age"]    # 需要标准化的数值字段列表 | List of numeric fields to standardize
+  enable: true                # 是否启用数据平衡
+  method: random              # 可选：random | cleaning+sampling | cluster
 
 # ==== 数据划分比例 ====
-# Train/validation/test split ratios
 split:
-  train_ratio: 0.8            # 训练集比例 | Training set ratio
-  val_ratio: 0.1              # 验证集比例 | Validation set ratio
-  test_ratio: 0.1             # 测试集比例 | Test set ratio
+  train_ratio: 0.8
+  val_ratio: 0.1
+  test_ratio: 0.1
 
 # ==== 模型配置 ====
-# Model configuration
 model:
-  name: MF                    # 模型名称（MF 或 LightGCN）| Model type: MF or LightGCN
-  latent_dim: 64              # 嵌入维度 | Latent embedding size
-  learning_rate: 0.01         # 学习率 | Learning rate
-  epochs: 20                  # 训练轮数 | Number of training epochs
-  batch_size: 256             # 批大小 | Batch size for training
+  name: MF                    # 可选：MF | LightGCN
+  latent_dim: 64
+  learning_rate: 0.01
+  epochs: 5                   # 为演示默认较小轮数；实际项目可调大
+  batch_size: 256
+  reg_lambda: 0.0             # L2 正则
+  fairness_lambda: 0.1        # 公平性正则强度（仅当 in_method=regularization 时使用）
+  in_method: null             # 默认 None；若 in_process.enable=true，会被 in_process.method 覆盖
+
+# ==== 公平性处理（可选） ====
+pre_process:
+  enable: true
+  method: user_activity       # 可选：user_activity | item_popularity
+
+in_process:
+  enable: true
+  method: regularization      # 可选：regularization | negative_sampling
+  topk: 20                    # 默认 Top-K 推荐数
+
+post_process:
+  enable: true                # 仅一种方法：apply_reranking
