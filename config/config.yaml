@@ -1,19 +1,15 @@
-# config/config.yaml
-
 # ==== 数据路径 ====
-# Path to the dataset CSV file
 data_path: data/movielens_sample.csv
 
 # ==== 数据清洗参数 ====
-# Parameters for data cleaning
 data_cleaning:
-  fill_missing: mean          # 缺失值填充方式（mean, median, zero）
-  outlier_method: zscore      # 异常值检测方法（zscore 或 iqr）
+  fill_missing: mean
+  outlier_method: zscore
 
-# ==== 数据平衡方法（可选） ====
+# ==== 数据平衡方法 ====
 balancing:
-  enable: true                # 是否启用数据平衡
-  method: random              # 可选：random | cleaning+sampling | cluster
+  enable: true
+  method: random
 
 # ==== 数据划分比例 ====
 split:
@@ -21,26 +17,24 @@ split:
   val_ratio: 0.1
   test_ratio: 0.1
 
-# ==== 模型配置 ====
-model:
-  name: MF                    # 可选：MF | LightGCN
-  latent_dim: 64
-  learning_rate: 0.01
-  epochs: 5                   # 为演示默认较小轮数；实际项目可调大
-  batch_size: 256
-  reg_lambda: 0.0             # L2 正则
-  fairness_lambda: 0.1        # 公平性正则强度（仅当 in_method=regularization 时使用）
-  in_method: null             # 默认 None；若 in_process.enable=true，会被 in_process.method 覆盖
-
-# ==== 公平性处理（可选） ====
+# ==== 公平性预处理 ====
 pre_process:
-  enable: true
-  method: user_activity       # 可选：user_activity | item_popularity
+  method: user_activity   # options: user_activity, item_popularity
 
+# ==== 公平性训练处理 ====
 in_process:
   enable: true
-  method: regularization      # 可选：regularization | negative_sampling
-  topk: 20                    # 默认 Top-K 推荐数
+  method: regularization  # options: None, regularization, negative_sampling
 
+# ==== 公平性后处理 ====
 post_process:
-  enable: true                # 仅一种方法：apply_reranking
+  enable: true
+
+# ==== 模型配置 ====
+model:
+  name: MF                # MF or LightGCN
+  latent_dim: 64
+  learning_rate: 0.01
+  epochs: 20
+  batch_size: 256
+  in_method: regularization  # None / regularization / negative_sampling
