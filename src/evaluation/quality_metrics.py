@@ -1,25 +1,49 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 
-def evaluate_f1_at_k(predictions, ground_truth, k=20):
-    df = predictions.copy()
-    df = df.sort_values('prediction', ascending=False).groupby('user_id').head(k)
-    merged = pd.merge(df[['user_id','item_id']], ground_truth[['user_id','item_id']], on=['user_id','item_id'])
-    precision = len(merged)/len(df)
-    recall = len(merged)/len(ground_truth)
-    if precision+recall==0:
+def evaluate_precision_at_k(preds_df: pd.DataFrame, ground_truth_df: pd.DataFrame, k: int = 20) -> float:
+    if preds_df.empty or ground_truth_df.empty:
         return 0.0
-    return 2*precision*recall/(precision+recall)
+    topk = preds_df.sort_values(['user_id','prediction'], ascending=[True, False]).groupby('user_id').head(k)
+    gt = ground_truth_df[['user_id','item_id']].drop_duplicates()
+    per_user = []
+    for user, group in topk.groupby('user_id'):
+        recs = set(group['item_id'].tolist())
+        true = set(gt[gt['user_id']==user]['item_id'].tolist())
+        if len(true) == 0:
+            continue
+        per_user.append(len(recs & true) / k)
+    return float(np.mean(per_user)) if per_user else 0.0
 
-def evaluate_ndcg_at_k(predictions, ground_truth, k=20):
-    df = predictions.copy()
-    df = df.sort_values('prediction', ascending=False).groupby('user_id').head(k)
-    user_groups = df['user_id'].unique()
-    ndcg_list = []
-    for u in user_groups:
-        rel = df[df['user_id']==u]['item_id'].tolist()
-        gt = ground_truth[ground_truth['user_id']==u]['item_id'].tolist()
-        dcg = sum([1/np.log2(i+2) for i,it in enumerate(rel) if it in gt])
-        idcg = sum([1/np.log2(i+2) for i in range(min(len(gt),k))])
-        ndcg_list.append(dcg/idcg if idcg>0 else 0.0)
-    return np.mean(ndcg_list)
+def evaluate_recall_at_k(preds_df: pd.DataFrame, ground_truth_df: pd.DataFrame, k: int = 20) -> float:
+    if preds_df.empty or ground_truth_df.empty:
+        return 0.0
+    topk = preds_df.sort_values(['user_id','prediction'], ascending=[True, False]).groupby('user_id').head(k)
+    gt = ground_truth_df[['user_id','item_id']].drop_duplicates()
+    per_user = []
+    for user, group in topk.groupby('user_id'):
+        recs = set(group['item_id'].tolist())
+        true = set(gt[gt['user_id']==user]['item_id'].tolist())
+        if len(true) == 0:
+            continue
+        per_user.append(len(recs & true) / len(true))
+    return float(np.mean(per_user)) if per_user else 0.0
+
+def evaluate_ndcg_at_k(preds_df: pd.DataFrame, ground_truth_df: pd.DataFrame, k: int = 20) -> float:
+    if preds_df.empty or ground_truth_df.empty:
+        return 0.0
+    df = preds_df.sort_values(['user_id','prediction'], ascending=[True, False])
+    ndcgs = []
+    gt = ground_truth_df[['user_id','item_id']].drop_duplicates()
+    for user, group in df.groupby('user_id'):
+        topk = group.head(k)['item_id'].tolist()
+        true = set(gt[gt['user_id']==user]['item_id'].tolist())
+        if len(true) == 0:
+            continue
+        dcg = 0.0
+        for i, it in enumerate(topk):
+            if it in true:
+                dcg += 1.0 / np.log2(i + 2)
+        idcg = sum(1.0 / np.log2(i + 2) for i in range(min(len(true), k)))
+        ndcgs.append(dcg / idcg if idcg > 0 else 0.0)
+    return float(np.mean(ndcgs)) if ndcgs else 0.0

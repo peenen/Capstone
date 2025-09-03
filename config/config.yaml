@@ -1,40 +1,38 @@
-# ==== 数据路径 ====
 data_path: data/movielens_sample.csv
 
-# ==== 数据清洗参数 ====
 data_cleaning:
   fill_missing: mean
   outlier_method: zscore
 
-# ==== 数据平衡方法 ====
 balancing:
   enable: true
   method: random
 
-# ==== 数据划分比例 ====
 split:
   train_ratio: 0.8
   val_ratio: 0.1
   test_ratio: 0.1
 
-# ==== 公平性预处理 ====
 pre_process:
-  method: user_activity   # options: user_activity, item_popularity
+  method: user_activity   # user_activity | item_popularity
 
-# ==== 公平性训练处理 ====
 in_process:
   enable: true
-  method: regularization  # options: None, regularization, negative_sampling
+  method: negative_sampling   # none | regularization | negative_sampling
 
-# ==== 公平性后处理 ====
 post_process:
   enable: true
 
-# ==== 模型配置 ====
 model:
-  name: MF                # MF or LightGCN
+  name: MF                  # MF | LightGCN
   latent_dim: 64
+  n_layers: 3               # used by LightGCN
   learning_rate: 0.01
-  epochs: 20
+  epochs: 10
   batch_size: 256
-  in_method: regularization  # None / regularization / negative_sampling
+  device: auto              # "auto" uses cuda if available
+  reg_weight: 1e-3
+  neg_alpha: 0.8            # fairness sampling alpha (0..1)
+
+evaluation:
+  topk: 20

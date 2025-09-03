@@ -1,61 +1,59 @@
 import pandas as pd
-from src.data_preparation import data_cleaning, dataset_balancing, dataset_splitting
+import yaml
+from src.data_preparation.data_cleaning import handle_missing_values, handle_duplicate_values, detect_outliers
+from src.data_preparation import dataset_balancing, dataset_splitting
 from src.fairness_algorithm import pre_process, in_process, post_process
-from src.models.baseline_models import MFModel, LightGCNModel
 from src.evaluation import quality_metrics, fairness_metrics
 
-def run_pipeline(config):
-    df = pd.read_csv(config["data_path"])
-    df = data_cleaning.handle_duplicate_values(df)
-    df = data_cleaning.handle_missing_values(df, method=config["data_cleaning"]["fill_missing"])
-    df = data_cleaning.detect_outliers(df, method=config["data_cleaning"]["outlier_method"])
+def run_pipeline(config_path="config/config.yaml"):
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
 
-    # Optional balancing
-    if config["balancing"]["enable"]:
-        method = config["balancing"]["method"]
-        if method=="random":
+    df = pd.read_csv(config["data_path"])
+    df = handle_duplicate_values(df)
+    df = handle_missing_values(df, method=config["data_cleaning"]["fill_missing"])
+    df = detect_outliers(df, method=config["data_cleaning"]["outlier_method"])
+
+    if config.get("balancing", {}).get("enable", False):
+        method = config["balancing"].get("method", "random")
+        if method == "random":
             df = dataset_balancing.random_sampling(df)
-        elif method=="cleaning+sampling":
+        elif method == "cleaning+sampling":
             df = dataset_balancing.cleaning_plus_sampling(df)
-        elif method=="cluster":
+        elif method == "cluster":
             df = dataset_balancing.cluster_based_sampling(df)
 
-    # Pre-process (compulsory)
+    # Pre-process (COMPULSORY)
     pre_method = config["pre_process"]["method"]
-    if pre_method=="user_activity":
+    if pre_method == "user_activity":
         df = pre_process.group_by_user_activity(df)
-    elif pre_method=="item_popularity":
+    elif pre_method == "item_popularity":
         df = pre_process.group_by_item_popularity(df)
+    else:
+        raise ValueError("pre_process.method must be 'user_activity' or 'item_popularity'")
 
+    # Split
     train_df, val_df, test_df = dataset_splitting.split_data(df, config["split"])
 
-    # Model initialization
+    # In-process train & predict
     model_name = config["model"]["name"]
-    model_cfg = config["model"]
-    if model_name=="MF":
-        model = MFModel(model_cfg)
-    elif model_name=="LightGCN":
-        model = LightGCNModel(model_cfg)
-
-    # In-process
-    if config["in_process"]["enable"]:
-        model.in_method = config["in_process"]["method"]
-        predictions = in_process.apply_in_process(model, train_df, val_df)
-    else:
-        predictions = model.predict(test_df)
+    preds_df = in_process.train_and_predict(model_name, config, train_df, val_df, test_df)
 
     # Post-process
-    if config["post_process"]["enable"]:
-        predictions = post_process.apply_reranking(predictions, config)
+    if config.get("post_process", {}).get("enable", False):
+        preds_df = post_process.apply_reranking(preds_df, config)
 
-    # Evaluation
+    # Evaluation (use top-k across all test users)
+    topk = config.get("evaluation", {}).get("topk", 20)
     quality = {
-        "F1@20": quality_metrics.evaluate_f1_at_k(predictions, test_df),
-        "NDCG@20": quality_metrics.evaluate_ndcg_at_k(predictions, test_df)
+        "Precision@K": quality_metrics.evaluate_precision_at_k(preds_df, test_df, k=topk),
+        "Recall@K": quality_metrics.evaluate_recall_at_k(preds_df, test_df, k=topk),
+        "NDCG@K": quality_metrics.evaluate_ndcg_at_k(preds_df, test_df, k=topk)
     }
     fairness = {
-        "Gini": fairness_metrics.evaluate_gini_index(predictions),
-        "KL": fairness_metrics.evaluate_kl_divergence(predictions, test_df),
-        "Recall-Disp": fairness_metrics.evaluate_recall_dispersion(predictions)
+        "Gini": fairness_metrics.evaluate_gini_index(preds_df),
+        "KL": fairness_metrics.evaluate_kl_divergence(preds_df, test_df),
+        "Recall-Disp": fairness_metrics.evaluate_recall_dispersion(preds_df, test_df)
     }
-    return {"quality": quality, "fairness": fairness}
+
+    return {"quality": quality, "fairness": fairness, "predictions": preds_df}
