@@ -200,6 +200,13 @@ class MFRecommender:
                 if counts.sum() <= 0:
                     counts += 1.0
                 self.user_hist_mix[int(uid)] = (counts / counts.sum())
+                
+        # -------------------------- 新增：读取偏差约束配置 --------------------------
+        # 从ugf_config中读取偏差约束参数（复用现有group_info透传逻辑）
+        self.enable_rating_bias_constraint = bool(ugf.get("enable_rating_bias_constraint", False))
+        self.alpha_bias = float(ugf.get("alpha_bias", 1.2))  # 约束宽松度（越大约束越松）
+        self.beta_bias = float(ugf.get("beta_bias", 0.5))    # 偏移量（避免约束过严）
+        # ------------------------------------------------------------------------
 
         # ====== 训练循环（BPR / 简单点积） ======
         # 准备训练样本索引
