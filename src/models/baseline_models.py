@@ -120,6 +120,12 @@ class MFRecommender:
         self.global_target_vec: Optional[torch.Tensor] = None
         self.user_hist_mix: Optional[Dict[int, torch.Tensor]] = None
         self.num_groups = 0
+        # ------------ 评分偏差约束：相关参数--------------
+        self.global_avg_rating = 0.0  # 全局平均评分
+        self.user_rating_bias = {}    # 用户评分偏差：{user_id: 偏差值}
+        self.enable_rating_bias_constraint = False  # 是否启用偏差约束
+        self.alpha_bias = 1.2         # 约束宽松度（默认值，可从config读取）
+        self.beta_bias = 0.5          # 约束偏移量（默认值，可从config读取）
 
     # ----- 公共接口 -----
 
@@ -139,6 +145,17 @@ class MFRecommender:
         self.item2idx = {v: j for j, v in enumerate(items)}
         self.idx2user = {i: u for u, i in self.user2idx.items()}
         self.idx2item = {j: v for v, j in self.item2idx.items()}
+
+        # -------------------------- 评分偏差约束：统计评分偏差 --------------------------
+        # 1. 计算全局平均评分（需确保train_df有"rating"列）
+        self.global_avg_rating = train_df["rating"].astype(float).mean()
+        # 2. 计算每个用户的评分偏差（用户平均评分 - 全局平均评分的绝对值）
+        user_avg_rating = train_df.groupby("user_id")["rating"].mean().reset_index()
+        for _, row in user_avg_rating.iterrows():
+            uid = int(row["user_id"])
+            user_avg = float(row["rating"])
+            self.user_rating_bias[uid] = abs(user_avg - self.global_avg_rating)  # 相对偏差
+        # ------------------------------------------------------------------------
 
         # 记录已交互集合（训练用 & 推荐时过滤）
         for _, r in train_df[["user_id", "item_id"]].astype(int).iterrows():
@@ -264,6 +281,26 @@ class MFRecommender:
                     loss = loss_main + self.lambda_ugf * ugf_loss
                 else:
                     loss = loss_main
+                # -------------------------- 评分偏差约束：损失 --------------------------
+                if self.enable_rating_bias_constraint:
+                    # 1. 获取当前批次的原始user_id（从本地索引映射回原始ID）
+                    batch_user_ids = [self.idx2user[int(u_idx)] for u_idx in u_b.detach().cpu().tolist()]
+                    # 2. 计算每个用户的约束上限：alpha*(用户偏差 + beta)
+                    constraint_upper = torch.tensor(
+                        [self.alpha_bias * (self.user_rating_bias.get(uid, 0.0) + self.beta_bias) 
+                         for uid in batch_user_ids],
+                        dtype=torch.float32,
+                        device=self.device
+                    )  # [B]
+                    # 3. 计算预测评分与全局平均的差距（绝对值）
+                    pred_scores = self.net.score(u_b, i_pos_b)  # 正例预测评分 [B]
+                    pred_diff = torch.abs(pred_scores - self.global_avg_rating)  # [B]
+                    # 4. Hinge损失：当差距超过约束上限时，施加惩罚
+                    bias_loss = torch.max(torch.tensor(0.0, device=self.device), pred_diff - constraint_upper).mean()
+                    # 5. 加入总损失（lambda_bias控制约束强度，从config读取）
+                    lambda_bias = float(ugf.get("lambda_bias", 0.1))
+                    loss = loss + lambda_bias * bias_loss
+                # ------------------------------------------------------------------------
 
                 opt.zero_grad()
                 loss.backward()
