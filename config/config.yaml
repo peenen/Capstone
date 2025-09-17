@@ -19,6 +19,12 @@ pre_process:
 in_process:
   enable: true
   method: negative_sampling   # none | regularization | negative_sampling
+  enable_ugf: true           # UGF开关
+  lambda_ugf: 0.2            # 公平-质量权衡（越大越强调公平）
+  tau: 0.7                   # softmax 温度（越小越接近硬排序）
+  use_js_divergence: true    # false 时改用 L2
+  beta_user_personalization: 0.0   # 先用全局目标（个性化就调到 0.1）
+  target_mix: {popular: 0.6, unpopular: 0.4}
 
 post_process:
   enable: true
