@@ -17,6 +17,12 @@ def train_and_predict(model_name, config, train_df, val_df, test_df, group_info=
         "beta_user_personalization": config.get("in_process", {}).get("beta_user_personalization", 0.0),
         "target_mix": config.get("in_process", {}).get("target_mix", {"popular": 0.6, "unpopular": 0.4}),
         "min_quota": config.get("in_process", {}).get("min_quota", None),  # 预留硬约束位
+        # -------------------------- 评分偏差约束：超参 --------------------------
+        "enable_rating_bias_constraint": config.get("in_process", {}).get("enable_rating_bias_constraint", False),
+        "alpha_bias": config.get("in_process", {}).get("alpha_bias", 1.2),
+        "beta_bias": config.get("in_process", {}).get("beta_bias", 0.5),
+        "lambda_bias": config.get("in_process", {}).get("lambda_bias", 0.1),
+        # ------------------------------------------------------------------------
     }
     if group_info is None:
         group_info = {}
