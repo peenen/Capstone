@@ -25,6 +25,12 @@ in_process:
   use_js_divergence: true    # false 时改用 L2
   beta_user_personalization: 0.0   # 先用全局目标（个性化就调到 0.1）
   target_mix: {popular: 0.6, unpopular: 0.4}
+  # -------------------------- 评分偏差约束：配置 --------------------------
+  enable_rating_bias_constraint: true  # 是否启用评分偏差约束
+  alpha_bias: 1.2                     # 约束宽松度（建议1.0-1.5）
+  beta_bias: 0.5                      # 偏移量（建议0.3-0.7）
+  lambda_bias: 0.1                    # 约束强度（建议0.05-0.2，越大约束越严）
+  # ------------------------------------------------------------------------
 
 post_process:
   enable: true
